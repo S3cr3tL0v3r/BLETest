@@ -1,8 +1,11 @@
 <resources>
+    <string name="_69">69</string>
     <string name="app_name">BLETest</string>
+    <string name="celsius">°C</string>
+    <string name="engine_oil_temperature_icon">Engine oil temperature icon</string>
+    <string name="nan">NaN</string>
+    <string name="no_device">no device</string>
     <string name="start_scan">Start scan</string>
     <string name="stop_scan">Stop scan</string>
-    <string name="no_device">no device</string>
-    <string name="nan">NaN</string>
-    <string name="celsius">°C</string>
+    <string name="widget">Widget</string>
 </resources>

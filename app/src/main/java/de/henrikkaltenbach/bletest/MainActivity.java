@@ -4,16 +4,18 @@ import android.Manifest;
 import android.app.Activity;
 import android.bluetooth.*;
 import android.bluetooth.le.*;
-import android.content.Context;
-import android.content.Intent;
+import android.content.*;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
+import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.ParcelUuid;
+import android.provider.Settings;
 import android.util.Log;
 import android.view.View;
+import android.widget.Button;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 import androidx.annotation.NonNull;
@@ -33,11 +35,13 @@ public class MainActivity extends AppCompatActivity {
 
     private static final int ENABLE_BLUETOOTH_REQUEST_CODE = 1;
     private static final int LOCATION_PERMISSION_REQUEST_CODE = 2;
+    private static final int REQUEST_CODE_FOR_OVERLAY_SCREEN = 106;
     private static final long SCAN_PERIOD = 10000;
     private static final String ENVIRONMENTAL_SENSING_SERVICE_UUID = "0000181A-0000-1000-8000-00805F9B34FB";
     private static final String TEMPERATURE_CHARACTERISTIC_UUID = "00002A6E-0000-1000-8000-00805F9B34FB";
     private static final String CCC_DESCRIPTOR_UUID = "00002902-0000-1000-8000-00805F9B34FB";
     private static final String DEVICE_NAME = "Henrik's ESP32";
+
 
     private Toolbar toolbar;
     private ProgressBar progressCircle;
@@ -49,8 +53,13 @@ public class MainActivity extends AppCompatActivity {
     private ScanSettings scanSettings;
     private Handler handler;
     private boolean isScanning;
+    private boolean isDisconnected;
     private Context context;
     private BluetoothGatt bleGatt;
+
+    private Button bWidget;
+    private GetFloatingIconClick receiver;
+    private IntentFilter filter;
 
     private BluetoothAdapter getBluetoothAdapter() {
         return ((BluetoothManager)getSystemService(Context.BLUETOOTH_SERVICE)).getAdapter();
@@ -78,12 +87,12 @@ public class MainActivity extends AppCompatActivity {
             if (status == BluetoothGatt.GATT_SUCCESS && newState == BluetoothProfile.STATE_CONNECTED) {
                 bleGatt = gatt;
                 runOnUiThread(() -> {
-                    progressCircle.setVisibility(View.INVISIBLE);
                     tvDevice.setText(bleDevice.getName());
                     toolbar.setBackgroundColor(Color.GREEN);
                     tvTemperature.setVisibility(View.VISIBLE);
                     tvCelsius.setVisibility(View.VISIBLE);
                 });
+                isDisconnected = false;
                 Log.i("BluetoothGattCallback", String.format("Successfully connected to %s (%s)", bleDevice.getName(), bleDevice.getAddress()));
                 handler.post(() -> bleGatt.discoverServices());
                 Log.i("BluetoothGattCallback", String.format("Discover services on %s (%s)", bleDevice.getName(), bleDevice.getAddress()));
@@ -95,6 +104,7 @@ public class MainActivity extends AppCompatActivity {
                     tvTemperature.setVisibility(View.INVISIBLE);
                     tvCelsius.setVisibility(View.INVISIBLE);
                 });
+                isDisconnected = true;
                 startBleScan();
                 Log.e("BluetoothGattCallback",  String.format("Successfully disconnected from or connection error with %s (%s)", bleDevice.getName(), bleDevice.getAddress()));
             }
@@ -119,18 +129,12 @@ public class MainActivity extends AppCompatActivity {
 
         @Override
         public void onCharacteristicChanged(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic) {
-            byte[] bytes = characteristic.getValue();
-//            String value = String.valueOf(ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN).getShort());
-            short adcReading = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN).getShort();
-            String oilTemperature = String.format(Locale.US, "%8.2f", steinhartHartBParameter(adcReading));
+            double value = ByteBuffer.wrap(characteristic.getValue()).order(ByteOrder.LITTLE_ENDIAN).getDouble();
+            String oilTemperature = String.format(Locale.US, "%4.1f", value);
             runOnUiThread(()-> tvTemperature.setText(oilTemperature));
-            Log.i("BluetoothGattCallback", String.format("adc:%d oil:%s", adcReading, oilTemperature));
+            Log.i("BluetoothGattCallback", "Characteristic value changed. Oil temperature: " + oilTemperature);
         }
     };
-
-    private double steinhartHartBParameter(short adcReading) {
-        return (1.0 / (1.0/298.15 + 1.0/3380 * Math.log(4095.0/adcReading - 1))) - 273.15;
-    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -140,7 +144,11 @@ public class MainActivity extends AppCompatActivity {
         toolbar = findViewById(R.id.toolbar);
         progressCircle =  findViewById(R.id.progressCircle);
         tvDevice = findViewById(R.id.tvDevice);
-        tvDevice.setOnClickListener(view -> startBleScan());
+        tvDevice.setOnClickListener(view -> {
+            if (isDisconnected) {
+                startBleScan();
+            }
+        });
         tvTemperature = findViewById(R.id.tvTemperature);
         tvCelsius = findViewById(R.id.tvCelsius);
         scanFilter = new ScanFilter.Builder()
@@ -152,14 +160,35 @@ public class MainActivity extends AppCompatActivity {
                 .setCallbackType(ScanSettings.CALLBACK_TYPE_FIRST_MATCH)
                 .build();
         handler = new Handler(Looper.getMainLooper());
+        isDisconnected = true;
+        bWidget = findViewById(R.id.bWidget);
+        bWidget.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                try {
+                    if (!Settings.canDrawOverlays(MainActivity.this)) {
+                        Intent intent = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                Uri.parse("package:" + getPackageName()));
+                        startActivityForResult(intent, REQUEST_CODE_FOR_OVERLAY_SCREEN);
+                    } else {
+                        initializeView();
+                    }
+                } catch (ActivityNotFoundException ignored) {
+                }
+            }
+        });
+        filter = new IntentFilter();
     }
 
     @Override
     protected void onResume() {
         super.onResume();
+        receiver = new GetFloatingIconClick();
+        filter.addAction(FloatingWidgetService.BROADCAST_ACTION);
+        registerReceiver(receiver, filter);
         if (!getBluetoothAdapter().isEnabled()) {
             promptEnableBluetooth();
-        } else {
+        } else if (isDisconnected) {
             bleScanner = getBluetoothAdapter().getBluetoothLeScanner();
             startBleScan();
         }
@@ -176,10 +205,10 @@ public class MainActivity extends AppCompatActivity {
     private void startBleScan() {
         if (isLocationPermissionDenied()) {
             requestLocationPermission();
-        } else {
+        } else if (!isScanning) {
             bleScanner.startScan(Collections.singletonList(scanFilter), scanSettings, scanCallback);
             isScanning = true;
-            progressCircle.setVisibility(View.VISIBLE);
+            runOnUiThread(()-> progressCircle.setVisibility(View.VISIBLE));
             handler.postDelayed(this::stopBleScan, SCAN_PERIOD);
             Log.i("BluetoothLeScanner", "Scan started");
         }
@@ -189,6 +218,7 @@ public class MainActivity extends AppCompatActivity {
         if (isScanning) {
             bleScanner.stopScan(scanCallback);
             isScanning = false;
+            runOnUiThread(()-> progressCircle.setVisibility(View.INVISIBLE));
             Log.i("BluetoothLeScanner", "Scan stopped");
         }
     }
@@ -238,5 +268,20 @@ public class MainActivity extends AppCompatActivity {
 
     private void requestPermission(String permission, int requestCode) {
         ActivityCompat.requestPermissions(this, new String[]{permission}, requestCode);
+    }
+
+    private void initializeView() {
+        Intent startIntent = new Intent(MainActivity.this, FloatingWidgetService.class);
+        startService(startIntent);
+    }
+
+    private class GetFloatingIconClick extends BroadcastReceiver {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            Intent selfIntent = new Intent(MainActivity.this, MainActivity.class);
+            selfIntent.setFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT | Intent.FLAG_ACTIVITY_SINGLE_TOP
+                    | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+            startActivity(selfIntent);
+        }
     }
 }
