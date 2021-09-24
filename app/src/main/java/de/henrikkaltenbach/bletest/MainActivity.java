@@ -129,8 +129,8 @@ public class MainActivity extends AppCompatActivity {
 
         @Override
         public void onCharacteristicChanged(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic) {
-            double value = ByteBuffer.wrap(characteristic.getValue()).order(ByteOrder.LITTLE_ENDIAN).getDouble();
-            String oilTemperature = String.format(Locale.US, "%4.1f", value);
+            byte value = characteristic.getValue()[0];
+            String oilTemperature = String.format(Locale.US, "%d", value);
             runOnUiThread(()-> tvTemperature.setText(oilTemperature));
             Log.i("BluetoothGattCallback", "Characteristic value changed. Oil temperature: " + oilTemperature);
         }
@@ -162,19 +162,16 @@ public class MainActivity extends AppCompatActivity {
         handler = new Handler(Looper.getMainLooper());
         isDisconnected = true;
         bWidget = findViewById(R.id.bWidget);
-        bWidget.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View view) {
-                try {
-                    if (!Settings.canDrawOverlays(MainActivity.this)) {
-                        Intent intent = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                                Uri.parse("package:" + getPackageName()));
-                        startActivityForResult(intent, REQUEST_CODE_FOR_OVERLAY_SCREEN);
-                    } else {
-                        initializeView();
-                    }
-                } catch (ActivityNotFoundException ignored) {
+        bWidget.setOnClickListener(view -> {
+            try {
+                if (!Settings.canDrawOverlays(MainActivity.this)) {
+                    Intent intent = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                            Uri.parse("package:" + getPackageName()));
+                    startActivityForResult(intent, REQUEST_CODE_FOR_OVERLAY_SCREEN);
+                } else {
+                    initializeView();
                 }
+            } catch (ActivityNotFoundException ignored) {
             }
         });
         filter = new IntentFilter();
@@ -197,6 +194,7 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onPause() {
         super.onPause();
+        unregisterReceiver(receiver);
         if (isScanning) {
             stopBleScan();
         }
