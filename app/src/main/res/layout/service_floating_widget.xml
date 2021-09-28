@@ -11,8 +11,7 @@
             android:id="@+id/collapse_view"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:padding="2dp"
-            android:background="@color/cardview_dark_background"
+            android:background="@drawable/widget_background"
             android:visibility="visible">
 
         <ImageView

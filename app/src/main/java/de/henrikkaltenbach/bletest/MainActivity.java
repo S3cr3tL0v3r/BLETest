@@ -101,6 +101,7 @@ public class MainActivity extends AppCompatActivity {
                 runOnUiThread(() -> {
                     tvDevice.setText(R.string.no_device);
                     toolbar.setBackgroundResource(R.color.teal_700);
+                    tvTemperature.setText(R.string.nan);
                     tvTemperature.setVisibility(View.INVISIBLE);
                     tvCelsius.setVisibility(View.INVISIBLE);
                 });
